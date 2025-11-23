@@ -497,9 +497,9 @@ with tab_selection[0]:
         st.subheader("📅 Weekly Boss Spawn Table")
         display_weekly_boss_table()
 
-    st.markdown("---")
-    st.subheader("📜 Boss Record Today")
-    display_today_respawn_table(timers)
+        st.markdown("---")
+        st.subheader("📜 Boss Record Today")
+        display_today_respawn_table(timers)
 
 # Tab 2: Manage & Edit Timers
 if st.session_state.auth:
