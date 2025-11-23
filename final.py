@@ -367,56 +367,6 @@ def display_weekly_boss_table():
     df = pd.DataFrame(data)
     st.write(df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
-# ------------------- Boss Record Today (NEW) -------------------
-def build_today_respawn_history(timers_list):
-    """
-    Build a list of boss respawns that happened today (from 00:00 to now).
-    """
-    now = datetime.now(tz=MANILA)
-    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    records = []
-
-    for t in timers_list:
-        t.update_next()
-
-        # Most recent spawn before next_time
-        spawn_time = t.next_time - timedelta(seconds=t.interval)
-
-        # Walk backwards through today's spawns
-        while spawn_time >= start_of_day:
-            if spawn_time <= now:
-                records.append({
-                    "Boss Name": t.name,
-                    "Time": spawn_time,
-                })
-            spawn_time -= timedelta(seconds=t.interval)
-
-    # Latest first
-    records.sort(key=lambda r: r["Time"], reverse=True)
-    return records
-
-def display_today_respawn_table(timers_list):
-    """
-    Display 'Boss Record Today' table with columns: Boss Name | Time
-    """
-    history = build_today_respawn_history(timers_list)
-
-    if not history:
-        st.info("No boss respawns recorded today.")
-        return
-
-    data = {
-        "Boss Name": [r["Boss Name"] for r in history],
-        "Time": [
-            r["Time"].strftime("%b %d, %Y | %I:%M %p")
-            for r in history
-        ],
-    }
-
-    df = pd.DataFrame(data)
-    st.write(df.to_html(escape=False, index=False), unsafe_allow_html=True)
-
 # ---- Show the combined (field + weekly) next boss banner ----
 next_boss_banner(timers)
 
@@ -438,11 +388,6 @@ with tab_selection[0]:
     with col2:
         st.subheader("📅 Fixed Time Field Boss Spawn Table")
         display_weekly_boss_table()
-
-    # 👉 Boss Record Today at the very bottom
-    st.markdown("---")
-    st.subheader("📜 Boss Record Today")
-    display_today_respawn_table(timers)
 
 # Tab 2: Manage & Edit Timers
 if st.session_state.auth:
