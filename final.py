@@ -489,17 +489,24 @@ tab_selection = st.tabs(tabs)
 with tab_selection[0]:
     st.subheader("Field Boss Spawn Table")
 
-    # Side-by-side layout
-    col1, col2 = st.columns([2, 1])  # left = bigger
+    # main layout: big left, smaller right
+    col1, col2 = st.columns([2, 1])
+
+    # LEFT: full Field Boss table
     with col1:
         display_boss_table_sorted(timers)
-    with col2:
-        st.subheader("📅 Weekly Boss Spawn Table")
-        display_weekly_boss_table()
 
-        st.markdown("---")
-        st.subheader("📜 Boss Record Today")
-        display_today_respawn_table(timers)
+    # RIGHT: split into 2 small columns
+    with col2:
+        subcol1, subcol2 = st.columns(2)
+
+        with subcol1:
+            st.subheader("📅 Weekly Boss Spawn Table")
+            display_weekly_boss_table()
+
+        with subcol2:
+            st.subheader("📜 Boss Record Today")
+            display_today_respawn_table(timers)
 
 # Tab 2: Manage & Edit Timers
 if st.session_state.auth:
@@ -558,3 +565,4 @@ if st.session_state.auth:
                 st.info("No edits yet.")
         else:
             st.info("No edit history yet.")
+
