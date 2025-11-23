@@ -49,37 +49,98 @@ default_boss_data = [
 ]
 
 # ------------------- JSON Persistence -------------------
+def normalize_boss_entry(entry):
+    """
+    Normalize a boss entry from JSON into a (name, interval_minutes, last_time_str) tuple.
+    Supports:
+      - ["Venatus", 600, "2025-09-19 12:31 PM"]
+      - ("Venatus", 600, "2025-09-19 12:31 PM")
+      - {"name": "...", "interval": 600, "last_time": "..."}
+      - {"name": "...", "interval_minutes": 600, "last_time_str": "..."}
+    """
+    if isinstance(entry, (list, tuple)) and len(entry) == 3:
+        name, interval_minutes, last_time_str = entry
+        return str(name), int(interval_minutes), str(last_time_str)
+
+    if isinstance(entry, dict):
+        name = entry.get("name") or entry.get("boss") or entry.get("boss_name")
+        interval_minutes = entry.get("interval_minutes") or entry.get("interval")
+        last_time_str = entry.get("last_time_str") or entry.get("last_time")
+        if name is None or interval_minutes is None or last_time_str is None:
+            raise ValueError(f"Invalid boss entry dict: {entry}")
+        return str(name), int(interval_minutes), str(last_time_str)
+
+    raise ValueError(f"Unrecognized boss entry format: {entry}")
+
 def load_boss_data():
+    """
+    Load boss data from JSON, falling back to defaults on error.
+    Always returns a list of (name, interval_minutes, last_time_str) tuples.
+    Also auto-adds Supore if missing.
+    """
+    data_raw = None
+
     if DATA_FILE.exists():
-        with open(DATA_FILE, "r") as f:
-            data = json.load(f)
-    else:
-        data = default_boss_data.copy()
+        try:
+            with open(DATA_FILE, "r") as f:
+                data_raw = json.load(f)
+        except Exception as e:
+            print(f"Error reading {DATA_FILE}: {e}. Falling back to defaults.")
+            data_raw = None
 
-    # Auto-add Supore if missing
-    if not any(boss[0] == "Supore" for boss in data):
-        data.append(("Supore", 3720, "2025-09-20 07:15 AM"))
-        with open(DATA_FILE, "w") as f:
-            json.dump(data, f, indent=4)
+    if data_raw is None:
+        # Start from defaults if file missing or broken
+        data_raw = default_boss_data.copy()
 
-    return data
+    normalized = []
+    for entry in data_raw:
+        try:
+            normalized.append(normalize_boss_entry(entry))
+        except Exception as e:
+            print(f"Skipping invalid entry {entry}: {e}")
+
+    # If everything failed for some reason, hard-fallback
+    if not normalized:
+        normalized = default_boss_data.copy()
+
+    # Ensure Supore exists
+    if not any(name == "Supore" for name, _, _ in normalized):
+        normalized.append(("Supore", 3720, "2025-09-20 07:15 AM"))
+
+    # Re-save cleaned / normalized data to JSON
+    save_boss_data(normalized)
+
+    return normalized
 
 def save_boss_data(data):
+    """
+    Save boss data to JSON. Expects a list of (name, interval_minutes, last_time_str) tuples.
+    Stored as a simple list of lists for readability.
+    """
+    serializable = [[name, interval, last_time] for name, interval, last_time in data]
     with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+        json.dump(serializable, f, indent=4)
 
 def log_edit(boss_name, old_time, new_time):
     history = []
     if HISTORY_FILE.exists():
-        with open(HISTORY_FILE, "r") as f:
-            history = json.load(f)
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                history = json.load(f)
+        except Exception as e:
+            print(f"Error reading {HISTORY_FILE}: {e}. Starting new history.")
+            history = []
+
+    edited_by = st.session_state.get("username", "Unknown")
+
     history.append({
         "boss": boss_name,
         "old_time": old_time,
         "new_time": new_time,
         "edited_at": datetime.now(tz=MANILA).strftime("%Y-%m-%d %I:%M %p"),
-        "edited_by": st.session_state.username
+        "edited_by": edited_by,
     })
+
     with open(HISTORY_FILE, "w") as f:
         json.dump(history, f, indent=4)
 
@@ -317,31 +378,25 @@ def display_boss_table_sorted(timers_list):
     data = {
         "Boss Name": [t.name for t in timers_sorted],
         "Interval (min)": [t.interval_minutes for t in timers_sorted],
-
-        # Last spawn with your chosen format
         "Last Spawn": [
             t.last_time.strftime("%b %d, %Y | %I:%M %p")
             for t in timers_sorted
         ],
-
-        # ⬇⬇⬇ UPDATED — date only, NO TIME
         "Next Spawn Date": [
             t.next_time.strftime("%b %d, %Y (%a)")
             for t in timers_sorted
         ],
-
         "Next Spawn Time": [
             t.next_time.strftime("%I:%M %p")
             for t in timers_sorted
         ],
-
         "Countdown": countdown_cells,
     }
 
     df = pd.DataFrame(data)
     st.write(df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
-# ------------------- NEW Weekly Table: Boss | Day | Time | Countdown -------------------
+# ------------------- Weekly Table -------------------
 def display_weekly_boss_table():
     """Display sorted weekly bosses by nearest spawn time with columns:
        Boss, Day, Time (12h), Countdown."""
@@ -349,7 +404,7 @@ def display_weekly_boss_table():
     now = datetime.now(tz=MANILA)
 
     for boss, times in weekly_boss_data:
-        for sched in times:  # multiple fixed schedules per boss
+        for sched in times:
             spawn_dt = get_next_weekly_spawn(sched)
             countdown = spawn_dt - now
             upcoming.append((boss, spawn_dt, countdown))
@@ -389,7 +444,7 @@ with tab_selection[0]:
     with col1:
         display_boss_table_sorted(timers)
     with col2:
-        st.subheader("📅 Fixed Time Field Boss Spawn Table")
+        st.subheader("📅 Weekly Boss Spawn Table")
         display_weekly_boss_table()
 
 # Tab 2: Manage & Edit Timers
@@ -407,7 +462,7 @@ if st.session_state.auth:
                     f"{timer.name} Last Time",
                     value=timer.last_time.time(),
                     key=f"{timer.name}_last_time",
-                    step=60  # <-- 1-minute increments
+                    step=60  # 1-minute increments
                 )
                 if st.button(f"Save {timer.name}", key=f"save_{timer.name}"):
                     old_time_str = timer.last_time.strftime("%Y-%m-%d %I:%M %p")
@@ -435,8 +490,13 @@ if st.session_state.auth:
     with tab_selection[2]:
         st.subheader("Edit History")
         if HISTORY_FILE.exists():
-            with open(HISTORY_FILE, "r") as f:
-                history = json.load(f)
+            try:
+                with open(HISTORY_FILE, "r") as f:
+                    history = json.load(f)
+            except Exception as e:
+                st.error(f"Error reading history file: {e}")
+                history = []
+
             if history:
                 df_history = pd.DataFrame(history).sort_values("edited_at", ascending=False)
                 st.dataframe(df_history)
@@ -444,14 +504,3 @@ if st.session_state.auth:
                 st.info("No edits yet.")
         else:
             st.info("No edit history yet.")
-
-
-
-
-
-
-
-
-
-
-
